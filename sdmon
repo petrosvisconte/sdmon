@@ -1,0 +1,126 @@
+#!/bin/bash
+#
+# Author: Pierre Visconti
+# sdmon: A command line systemd monitoring tool for linux
+# Github: https://github.com/petrosvisconte/sdmon
+
+
+if [ -f data.txt ]; then
+    rm data.txt
+fi
+touch data.txt
+
+function Get_Names {
+    service_name=($(ls ${HOME}/.config/systemd/user | grep .service))
+    timer_name=()
+    timers=($(find $HOME/.config/systemd/user -maxdepth 1 -name "*.timer"))
+    if [ ${#timers[@]} -gt 0 ]; then 
+        timer_name=($(ls ${HOME}/.config/systemd/user | grep .timer))
+    fi
+}
+
+function Get_Trigger {
+    local name="${1}"
+    local trigger="${2}"
+    local trigger=$(systemctl --user status "${name}" | grep ${trigger}:)
+    trigger=${trigger##*●}
+    trigger=${trigger##*○}
+    trigger=${trigger// /}                
+    echo "${trigger}"
+}
+
+function Get_Trigger_T {
+    local name="${1}"
+    local trigger=$(systemctl --user status "${name}" | grep Trigger:)
+    trigger=${trigger##*Trigger:}
+    trigger=${trigger## }
+    trigger=${trigger// /_}                
+    echo "${trigger}"
+}
+
+function Get_CPU {
+    local name="${1}"
+    local cpu=$(systemctl --user status "${name}" | grep 'CPU:')
+    cpu=${cpu##*:}
+    cpu=${cpu## }
+    cpu=${cpu// /:}
+    echo $cpu
+}
+function Get_Status {
+    local name="${1}"
+    local enabled=$(systemctl --user is-enabled "${name}")
+    local active=$(systemctl --user is-active "${name}")
+    local line[0]="${1%%.service*}"
+    local line[0]="${line[0]%%.timer*}"
+    line[1]=$enabled
+    line[2]=$active
+    echo "${line[@]}"
+}
+
+function Write_File_S {
+    local length_service="${#service_name[@]}"
+    local line=
+    for (( i=0; i<length_service; i++ )); do
+        line=$(Get_Status "${service_name[$i]}")
+        line[3]=$(Get_CPU "${service_name[$i]}")
+        line[4]=$(Get_Trigger "${service_name[$i]}" 'TriggeredBy')
+        echo "${line[@]}" >> data.txt
+    done
+
+    #for i in "${service_name[@]}"; do
+    #    Get_Status "${i}"
+    #done
+    #printf %"$COLUMNS"s |tr " " "-"
+}
+
+function Write_File_T {
+    local length_service="${#timer_name[@]}"
+    local line=
+    for (( i=0; i<length_service; i++ )); do
+        line=$(Get_Status "${timer_name[$i]}")
+        line[3]=$(Get_Trigger "${timer_name[$i]}" 'Triggers')
+        line[4]=$(Get_Trigger_T "${timer_name[$i]}")
+        echo "${line[@]}" >> data.txt
+    done
+
+    #for i in "${service_name[@]}"; do
+    #    Get_Status "${i}"
+    #done
+    #printf %"$COLUMNS"s |tr " " "-"
+}
+
+function main {
+    local default='\\e[0;39m'        
+    local white='\\e[0;97m'
+    local l_gray="\e[0;37m"
+    local l_red='\\e[0;91m'
+    local l_green='\\e[0;92m'
+    local l_yellow="\e[0;93m"
+    local l_blue="\e[0;94m"
+    local bl_gray='\\e[1;37m'
+    local bl_red="\e[1;91m"
+    local bl_green="\e[1;92m"
+    local bl_yellow="\e[1;93m"
+    local bl_blue="\e[1;94m"
+    local b_white="\e[1;97m"
+
+    echo "NAME BOOT STATE CPU TRIGGER" >> data.txt
+    Get_Names
+    Write_File_S
+    echo -e " \n" >> data.txt
+    if [ ${#timers[@]} -gt 0 ]; then 
+        echo -e "\e[0;97m-------\e[1;97mTIMERS\e[0;97m-------\e[0;39m" >> data.txt
+        echo -e "NAME BOOT STATE LAST TRIGGER" >> data.txt
+        Write_File_T
+    fi
+    echo ""
+    echo -e "\e[0;97m-------\e[1;97mSERVICES\e[0;97m-----\e[0;39m"
+    local output=$(column -s$'\t' -t -s " " data.txt)
+    echo -e "$(sed -e "s/NAME/${white}NAME/g" -e "s/\<TRIGGER\>/TRIGGER${default}/g" -e "s/disabled/${l_red}disabled${default}/g" -e "s/inactive/${l_red}inactive${default}/g" -e "s/masked/${l_red}masked${default}/g" -e "s/failed/${l_red}failed${default}/g" -e "s/enabled/${l_green}enabled${default}/g" -e "s/\<active\>/${l_green}active${default}/g"  <<< "${output}")" | sed 's/^/ /'
+    echo ""
+
+}
+
+main
+
+rm data.txt
